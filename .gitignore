@@ -6,3 +6,10 @@ dump/
 __pycache__/
 setup.sh
 profile_data/
+
+*.ppm
+*.o
+mandelbrot
+myexp
+mandelbrot_ispc
+sqrt

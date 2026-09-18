@@ -249,6 +249,61 @@ void clampedExpVector(float* values, int* exponents, float* output, int N) {
   // Your solution should work for any value of
   // N and VECTOR_WIDTH, not just when VECTOR_WIDTH divides N
   //
+    __cs149_vec_float x, result, maxVal;
+    __cs149_vec_int y, count;
+    __cs149_mask maskAll, maskIsZero, maskGtZero, maskClamp;
+    __cs149_vec_float one = _cs149_vset_float(1.f);
+    __cs149_vec_float clampVal = _cs149_vset_float(9.999999f);
+    __cs149_vec_int zero_i = _cs149_vset_int(0);
+    __cs149_vec_int one_i = _cs149_vset_int(1);
+
+    for (int i = 0; i < N; i += VECTOR_WIDTH) {
+        // 处理尾部：有效 lane 数
+        int remaining = N - i;
+        if (remaining >= VECTOR_WIDTH) {
+            maskAll = _cs149_init_ones();
+        } else {
+            maskAll = _cs149_init_ones(remaining);
+        }
+
+        _cs149_vload_float(x, values + i, maskAll);
+        _cs149_vload_int(y, exponents + i, maskAll);
+
+        // y == 0 的 lane
+        _cs149_veq_int(maskIsZero, y, zero_i, maskAll);
+        // y > 0 的 lane
+        maskGtZero = _cs149_mask_not(maskIsZero);
+
+        // 初始化 result = x
+        result = x;
+
+        // count = y - 1
+        _cs149_vsub_int(count, y, one_i, maskAll);
+
+        // 循环：只要还有 lane 的 count > 0
+        while (_cs149_cntbits(maskGtZero) > 0) {
+            // 还在累乘的 lane: count > 0
+            __cs149_mask maskStill;
+            _cs149_vgt_int(maskStill, count, zero_i, maskAll);
+            maskStill = _cs149_mask_and(maskStill, maskGtZero);
+
+            _cs149_vmult_float(result, result, x, maskStill);
+
+            _cs149_vsub_int(count, count, one_i, maskStill);
+
+            // 重新计算 maskGtZero
+            _cs149_vgt_int(maskGtZero, count, zero_i, maskAll);
+        }
+
+        // y == 0 的 lane 输出 1.0
+        _cs149_vset_float(result, 1.f, maskIsZero);
+
+        // 钳制
+        _cs149_vgt_float(maskClamp, result, clampVal, maskAll);
+        _cs149_vset_float(result, 9.999999f, maskClamp);
+
+        _cs149_vstore_float(output + i, result, maskAll);
+    }
   
 }
 
@@ -271,10 +326,28 @@ float arraySumVector(float* values, int N) {
   // CS149 STUDENTS TODO: Implement your vectorized version of arraySumSerial here
   //
   
-  for (int i=0; i<N; i+=VECTOR_WIDTH) {
+    __cs149_vec_float acc = _cs149_vset_float(0.f);
+    __cs149_mask maskAll = _cs149_init_ones();
 
-  }
+    // 第一步：向量累加，得到 VECTOR_WIDTH 个部分和
+    for (int i = 0; i < N; i += VECTOR_WIDTH) {
+        __cs149_vec_float v;
+        _cs149_vload_float(v, values + i, maskAll);
+        _cs149_vadd_float(acc, acc, v, maskAll);
+    }
 
-  return 0.0;
+    // 第二步：水平归约，把 VECTOR_WIDTH 个 lane 合并成一个标量
+    // 用 hadd + interleave 做树形归约
+    for (int stride = 1; stride < VECTOR_WIDTH; stride *= 2) {
+        __cs149_vec_float shifted;
+        _cs149_interleave_float(shifted, acc);   // 交错重排，把相邻 lane 配对
+        _cs149_hadd_float(acc, shifted);         // 水平相加
+    }
+
+    // 第三步：提取标量结果
+    float result;
+    __cs149_mask maskOne = _cs149_init_ones(1);
+    _cs149_vstore_float(&result, acc, maskOne);
+    return result;
 }
 
